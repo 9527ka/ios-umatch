@@ -1,35 +1,32 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'deeplink_resolver.dart';
-import 'remote_config.dart';
 
-/// 接收原生回传的 `umatch://<token>` 深链并驱动激活。
+/// 接收原生回传的 `umatch://<token>` 深链，解析出 token 后交给上层。
 ///
 /// 调用链:
 ///   AppDelegate.application(_:open:) / launchOptions[.url]
 ///     → MethodChannel com.uu.umatch/deeplink (onLink / getInitialLink)
-///     → DeepLinkService._handle(token)
-///     → RemoteConfigService.fetch() (确保 atk/au 已缓存)
-///     → DeepLinkResolver.resolve(token) (本地 tryActivate 命中或服务端兜底)
-///     → onLanding(url) → 路由到 LandingWebView
+///     → DeepLinkService._handle(url) 解析 token
+///     → onToken(token) → 上层弹出「加载中」过渡页 (DeepLinkLoadingView)，
+///       在过渡页里 fetch + resolve，再跳 LandingWebView。
 class DeepLinkService {
   static final DeepLinkService shared = DeepLinkService._();
   DeepLinkService._();
 
   static const MethodChannel _channel = MethodChannel('com.uu.umatch/deeplink');
 
-  void Function(String url)? _onLanding;
+  void Function(String token)? _onToken;
   bool _inited = false;
 
-  /// [onLanding] 在解析出落地 URL 时回调（导航到 LandingWebView）。
-  Future<void> init({required void Function(String url) onLanding}) async {
-    _onLanding = onLanding;
+  /// [onToken] 在解析出合法 token 时立即回调（用于弹出加载中过渡页）。
+  Future<void> init({required void Function(String token) onToken}) async {
+    _onToken = onToken;
     if (_inited) return;
     _inited = true;
 
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onLink') {
-        await _handle(call.arguments as String?);
+        _handle(call.arguments as String?);
       }
       return null;
     });
@@ -38,12 +35,12 @@ class DeepLinkService {
     try {
       final initial = await _channel.invokeMethod<String>('getInitialLink');
       if (initial != null && initial.isNotEmpty) {
-        await _handle(initial);
+        _handle(initial);
       }
     } catch (_) {}
   }
 
-  Future<void> _handle(String? url) async {
+  void _handle(String? url) {
     if (url == null || url.isEmpty) return;
     const prefix = 'umatch://';
     if (!url.toLowerCase().startsWith(prefix)) return;
@@ -58,14 +55,6 @@ class DeepLinkService {
     if (token.isEmpty) return;
     debugPrint('UMSHELL deeplink _handle url=$url token=$token');
 
-    // 确保最新 cfg 已缓存 (atk/au)，让本地 tryActivate 命中并持久化激活
-    await RemoteConfigService.shared.fetch();
-    final landing = await DeepLinkResolver.shared.resolve(token);
-    debugPrint('UMSHELL deeplink resolve -> ${landing ?? "null"}');
-    if (landing != null && landing.isNotEmpty) {
-      _onLanding?.call(landing);
-    } else {
-      debugPrint('UMSHELL deeplink: token 未解析出落地 URL');
-    }
+    _onToken?.call(token);
   }
 }

@@ -42,16 +42,26 @@ class _LandingWebViewState extends State<LandingWebView> {
   ''';
 
   /// JS: 在顶部/底部各取 5 个水平采样点, 用出现次数最多的颜色 (众数)
-  static const _colorScript = '''
+  static const _colorScript = r'''
     (function(){
+      // 仅接受"接近不透明"的背景色：跳过弹窗半透明遮罩(rgba(0,0,0,.5))、
+      // 全透明等，沿父链继续找页面真实底色，避免遮罩被识别成黑色。
+      function opaque(c){
+        if(!c||c==='transparent') return false;
+        var m=c.match(/^rgba?\(([^)]+)\)/);
+        if(!m) return false;
+        var p=m[1].split(',');
+        var a=p.length>=4?parseFloat(p[3]):1;
+        return a>=0.95;
+      }
       function bg(x,y){
         var el=document.elementFromPoint(x,y);
-        if(!el) return '';
-        var c=getComputedStyle(el).backgroundColor;
-        while((!c||c==='rgba(0, 0, 0, 0)'||c==='transparent')&&el.parentElement){
-          el=el.parentElement; c=getComputedStyle(el).backgroundColor;
+        while(el){
+          var c=getComputedStyle(el).backgroundColor;
+          if(opaque(c)) return c;
+          el=el.parentElement;
         }
-        return (c&&c!=='rgba(0, 0, 0, 0)'&&c!=='transparent')?c:'';
+        return '';
       }
       function mode(arr){
         var m={},best='',bc=0;

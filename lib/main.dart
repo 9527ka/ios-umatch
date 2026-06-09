@@ -13,6 +13,7 @@ import 'shell/remote_config.dart';
 import 'shell/landing_webview.dart';
 import 'shell/push_registrar.dart';
 import 'shell/deeplink_channel.dart';
+import 'shell/deeplink_loading_view.dart';
 
 /// 全局导航 key：供深链在 widget 树之外路由页面。
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -106,12 +107,12 @@ class _RouterState extends State<_Router> {
     _setupDeepLinks();
   }
 
-  // 接收 umatch://<token> 深链 → 成功后整栈替换为 WebView 页面
+  // 接收 umatch://<token> 深链 → 立即弹「加载中」过渡页，在页内 fetch+resolve，
+  // 解析出落地页再跳 LandingWebView，避免接口耗时期间无反馈。
   void _setupDeepLinks() {
-    DeepLinkService.shared.init(onLanding: (url) {
-      navigatorKey.currentState?.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => LandingWebView(url: url)),
-        (route) => false,
+    DeepLinkService.shared.init(onToken: (token) {
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => DeepLinkLoadingView(token: token)),
       );
     });
   }
